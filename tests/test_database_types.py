@@ -187,8 +187,11 @@ DATABASE_TYPES = {
             # "tinyint", # 1 byte
             # "smallint", # 2 bytes
             # "mediumint", # 3 bytes
-            # "int", # 4 bytes
-            # "bigint", # 8 bytes
+            "int",  # 4 bytes
+            "bigint",  # 8 bytes
+        ],
+        "datetime_no_timezone": [
+            "timestamp",
         ],
         "datetime_no_timezone": ["timestamp(6)", "timestamp(3)", "timestamp(0)", "timestamp", "datetime(6)"],
         "float": [
@@ -252,19 +255,21 @@ class TestDiffCrossDatabaseTables(unittest.TestCase):
         self.connections = [self.src_conn, self.dst_conn]
         sample_values = TYPE_SAMPLES[type_category]
 
-        src_table_name = f"{parameterized.to_safe_name(source_type)}_{N_SAMPLES}"
-        src_table_path = src_conn.parse_table_name(f"src_{src_table_name}")
+        # We need to include the database name because of e.g. Presto which has
+        # Postgres as a backing catalog and shouldn't re-use those.
+        src_table_name = f"src_{source_db.__name__.lower()}_{parameterized.to_safe_name(source_type)}_{N_SAMPLES}"
+        src_table_path = src_conn.parse_table_name(src_table_name)
         src_table = src_conn.quote(".".join(src_table_path))
 
-        dst_table_name = f"dst_{parameterized.to_safe_name(target_type)}_src_{source_db.__name__.lower()}_{src_table_name}"
+        dst_table_name = f"dst_{target_db.__name__.lower()}_{parameterized.to_safe_name(target_type)}_{src_table_name}"
         # Since we insert `src` to `dst`, the `dst` can be different for the
         # same type. 😭
         dst_table_path = dst_conn.parse_table_name(dst_table_name)
         dst_table = dst_conn.quote(".".join(dst_table_path))
 
         # If you want clean house from e.g. changing fakers.
-        # src_conn.query(f"DROP TABLE IF EXISTS {src_table}", None)
-        # dst_conn.query(f"DROP TABLE IF EXISTS {dst_table}", None)
+        src_conn.query(f"DROP TABLE IF EXISTS {src_table}", None)
+        dst_conn.query(f"DROP TABLE IF EXISTS {dst_table}", None)
 
         self.table = TableSegment(self.src_conn, src_table_path, "id", None, ("col",), case_sensitive=False)
         self.table2 = TableSegment(self.dst_conn, dst_table_path, "id", None, ("col",), case_sensitive=False)
