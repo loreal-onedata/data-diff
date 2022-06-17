@@ -414,6 +414,7 @@ class TableDiffer:
         max_rows_from_keys = max(table1.max_key - table1.min_key, table2.max_key - table2.min_key)
         if max_rows_from_keys < self.bisection_threshold:
             yield from self._bisect_and_diff_tables(table1, table2, level=level, max_rows=max_rows_from_keys)
+            return
 
         (count1, checksum1), (count2, checksum2) = self._threaded_call("count_and_checksum", [table1, table2])
 
