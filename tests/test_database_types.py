@@ -8,7 +8,7 @@ from parameterized import parameterized, parameterized_class
 from .common import CONN_STRINGS, DEFAULT_N_SAMPLES, N_SAMPLES, str_to_checksum
 import logging
 
-CONNS = {k: db.connect_to_uri(v) for k, v in CONN_STRINGS.items()}
+CONNS = {k: db.connect_to_uri(v, None) for k, v in CONN_STRINGS.items()}
 CONNS[db.MySQL].query("SET @@session.time_zone='+00:00'", None)
 
 
@@ -35,7 +35,6 @@ class DateTimeFaker:
             return str(self.prev)
         else:
             raise StopIteration
-
 
 class IntFaker:
     def __init__(self, max):
@@ -261,15 +260,15 @@ class TestDiffCrossDatabaseTables(unittest.TestCase):
         src_table_path = src_conn.parse_table_name(src_table_name)
         src_table = src_conn.quote(".".join(src_table_path))
 
-        dst_table_name = f"dst_{target_db.__name__.lower()}_{parameterized.to_safe_name(target_type)}_{src_table_name}"
+        dst_table_name = f"dst_{parameterized.to_safe_name(target_type)}_{src_table_name}"[0:64]
         # Since we insert `src` to `dst`, the `dst` can be different for the
         # same type. 😭
         dst_table_path = dst_conn.parse_table_name(dst_table_name)
         dst_table = dst_conn.quote(".".join(dst_table_path))
 
         # If you want clean house from e.g. changing fakers.
-        src_conn.query(f"DROP TABLE IF EXISTS {src_table}", None)
-        dst_conn.query(f"DROP TABLE IF EXISTS {dst_table}", None)
+        # src_conn.query(f"DROP TABLE IF EXISTS {src_table}", None)
+        # dst_conn.query(f"DROP TABLE IF EXISTS {dst_table}", None)
 
         self.table = TableSegment(self.src_conn, src_table_path, "id", None, ("col",), case_sensitive=False)
         self.table2 = TableSegment(self.dst_conn, dst_table_path, "id", None, ("col",), case_sensitive=False)
@@ -298,50 +297,63 @@ class TestDiffCrossDatabaseTables(unittest.TestCase):
         count2_duration = round(time.time() - start, 2)
 
         # Ensure we actually checksum even for few samples!
-        ch_threshold = 5_000 if N_SAMPLES > DEFAULT_N_SAMPLES else 3
+        ch_threshold = 10_000 if N_SAMPLES > DEFAULT_N_SAMPLES else 3
         ch_factor = (
-            min(max(int(N_SAMPLES / 250_000), 2), 12)
+            min(max(int(N_SAMPLES / 250_000), 2), 32)
             if N_SAMPLES > DEFAULT_N_SAMPLES
             else 2
         )
-        ch_threads = 12
+        ch_threads = 16
 
-        start = time.time()
         differ = TableDiffer(
             bisection_threshold=ch_threshold,
             bisection_factor=ch_factor,
             max_threadpool_size=ch_threads,
-            debug=True,
         )
+        start = time.time()
         diff = list(differ.diff_tables(self.table, self.table2))
+        checksum_duration = round(time.time() - start, 2)
         expected = []
         self.assertEqual(expected, diff)
         self.assertEqual(0, differ.stats.get("rows_downloaded", 0))
-        checksum_duration = round(time.time() - start, 2)
 
         start = time.time()
         # Ensure that Python agrees with the checksum!
         dl_factor = int(N_SAMPLES / 100_000) if N_SAMPLES > DEFAULT_N_SAMPLES else 2
         dl_threshold = int(N_SAMPLES / dl_factor) + 1
-        dl_threads = 8
+        dl_threads = 16
 
-        differ = TableDiffer(
-            bisection_threshold=dl_threshold,
-            bisection_factor=dl_factor,
-            max_threadpool_size=dl_threads,
-        )
-        diff = list(differ.diff_tables(self.table, self.table2))
-        expected = []
-        self.assertEqual(expected, diff)
-        self.assertEqual(len(sample_values), differ.stats.get("rows_downloaded", 0))
+        # differ = TableDiffer(
+        #     bisection_threshold=dl_threshold,
+        #     bisection_factor=dl_factor,
+        #     max_threadpool_size=dl_threads,
+        # )
+        # diff = list(differ.diff_tables(self.table, self.table2))
+        # expected = []
+        # self.assertEqual(expected, diff)
+        # self.assertEqual(len(sample_values), differ.stats.get("rows_downloaded", 0))
+
         download_duration = round(time.time() - start, 2)
 
-        print(
+        logging.getLogger("diff_tables").debug(
             f"\nsource_db={source_db.__name__} target_db={target_db.__name__} rows={N_SAMPLES} src_table={src_table} target_table={dst_table} source_type={repr(source_type)} target_type={repr(target_type)} insertion_source={insertion_source_duration}s insertion_target={insertion_target_duration}s count_source={count1_duration}s count_target={count2_duration}s checksum={checksum_duration}s download={download_duration}s download_threads={dl_threads} download_bisection_factor={dl_factor} download_bisection_threshold={dl_threshold} checksum_threads={ch_threads} checksum_bisection_factor={ch_factor} checksum_bisection_threshold={ch_threshold}"
         )
 
     def _create_table(self, conn, table, type) -> bool:
         conn.query(f"CREATE TABLE IF NOT EXISTS {table}(id int, col {type})", None)
+
+        if isinstance(conn, db.MySQL):
+            try:
+                conn.query(f"CREATE UNIQUE INDEX idx_{table[1:-1]}_id_col ON {table} (id, col)", None)
+                conn.query(f"CREATE UNIQUE INDEX idx_{table[1:-1]}_id ON {table} (id, col)", None)
+            except:
+                pass
+        else:
+            conn.query(f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table[1:-1]}_id_col ON {table} (id, col)", None)
+            conn.query(f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table[1:-1]}_id ON {table} (id, col)", None)
+
+        conn.query("COMMIT", None)
+
         # print(conn.query("SHOW TABLES FROM public", list))
         # print(conn.query("SELECT * FROM INFORMATION_SCHEMA.TABLES", list))
         already_seeded = conn.query(f"SELECT COUNT(*) FROM {table}", int) == N_SAMPLES

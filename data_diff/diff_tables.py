@@ -242,7 +242,7 @@ class TableSegment:
         duration = time.time() - start
         if duration > RECOMMENDED_CHECKSUM_DURATION:
             logger.warn(
-                f"Checksum is taking longer than expected ({duration:.2f}s). "
+                f"{type(self.database).__name__}: Checksum is taking longer than expected ({duration:.2f}s). "
                 "We recommend increasing --bisection-factor or decreasing --threads."
             )
 

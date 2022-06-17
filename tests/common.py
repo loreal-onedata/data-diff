@@ -2,13 +2,15 @@ import hashlib
 
 from data_diff import database as db
 import logging
+import os
 
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("diff_tables").setLevel(logging.INFO)
-logging.getLogger("database").setLevel(logging.INFO)
+level = logging.DEBUG
+logging.basicConfig(level=level)
+logging.getLogger("diff_tables").setLevel(level)
+logging.getLogger("database").setLevel(level)
 
 DEFAULT_N_SAMPLES = 50
-N_SAMPLES = DEFAULT_N_SAMPLES #  override in local_settings for larger-scale testing
+N_SAMPLES = os.environ.get('N_SAMPLES', DEFAULT_N_SAMPLES)
 
 TEST_MYSQL_CONN_STRING: str = "mysql://mysql:Password1@localhost/mysql"
 TEST_POSTGRES_CONN_STRING: str = None
