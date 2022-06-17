@@ -4,6 +4,11 @@ from data_diff import database as db
 import logging
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("diff_tables").setLevel(logging.INFO)
+logging.getLogger("database").setLevel(logging.INFO)
+
+DEFAULT_N_SAMPLES = 50
+N_SAMPLES = DEFAULT_N_SAMPLES #  override in local_settings for larger-scale testing
 
 TEST_MYSQL_CONN_STRING: str = "mysql://mysql:Password1@localhost/mysql"
 TEST_POSTGRES_CONN_STRING: str = None
