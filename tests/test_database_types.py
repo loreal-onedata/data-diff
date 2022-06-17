@@ -272,14 +272,16 @@ class TestDiffCrossDatabaseTables(unittest.TestCase):
         start = time.time()
         already_seeded = self._create_table(src_conn, src_table, source_type)
         if not already_seeded:
-            self._insert_to_table(src_conn, src_table, enumerate(sample_values, 1))
+            self._insert_to_table(
+                src_conn, src_table, source_type, enumerate(sample_values, 1)
+            )
         insertion_source_duration = round(time.time() - start, 2)
 
         start = time.time()
         already_seeded = self._create_table(dst_conn, dst_table, target_type)
         if not already_seeded:
             values_in_source = src_conn.query(f"SELECT id, col FROM {src_table}", list)
-            self._insert_to_table(dst_conn, dst_table, values_in_source)
+            self._insert_to_table(dst_conn, dst_table, target_type, values_in_source)
         insertion_target_duration = round(time.time() - start, 2)
 
         start = time.time()
@@ -334,18 +336,25 @@ class TestDiffCrossDatabaseTables(unittest.TestCase):
         )
 
     def _create_table(self, conn, table, type) -> bool:
-        conn.query(f"CREATE TABLE IF NOT EXISTS {table}(id int, col {type});", None)
-        conn.query("COMMIT", None)
+        conn.query(f"CREATE TABLE IF NOT EXISTS {table}(id int, col {type})", None)
+        # print(conn.query("SHOW TABLES FROM public", list))
+        # print(conn.query("SELECT * FROM INFORMATION_SCHEMA.TABLES", list))
         already_seeded = conn.query(f"SELECT COUNT(*) FROM {table}", int) == N_SAMPLES
         return already_seeded
 
-    def _insert_to_table(self, conn, table, values):
+    def _insert_to_table(self, conn, table, type, values):
         conn.query(f"TRUNCATE {table}", None)
         default_insertion_query = f"INSERT INTO {table} (id, col) VALUES "
         insertion_query = default_insertion_query
 
         for j, sample in values:
-            insertion_query += f"({j}, '{sample}'),"
+            if isinstance(conn, db.Presto):
+                if type.startswith("timestamp"):
+                    sample = f"timestamp '{sample}'"  #  must be cast...
+            else:
+                sample = f"'{sample}'"
+
+            insertion_query += f"({j}, {sample}),"
 
             if j % 10_000 == 0:
                 conn.query(insertion_query[0:-1], None)

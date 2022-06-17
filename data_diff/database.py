@@ -379,7 +379,13 @@ class Presto(Database):
 
     def _query(self, sql_code: str) -> list:
         "Uses the standard SQL cursor interface"
-        return _query_conn(self._conn, sql_code)
+        c = self._conn.cursor()
+        c.execute(sql_code)
+        if sql_code.lower().startswith("select"):
+            return c.fetchall()
+        # Required for the query to actually run 🤯
+        if re.match(r"\A(insert|create)", sql_code, re.IGNORECASE):
+            return c.fetchone()
 
     def close(self):
         self._conn.close()
@@ -395,9 +401,7 @@ class Presto(Database):
                 # datetime = f"date_format(cast({value} as timestamp(6), '%Y-%m-%d %H:%i:%S.%f'))"
                 # datetime = self.to_string(f"cast({value} as datetime(6))")
 
-            return (
-                f"RPAD(RPAD({s}, {TIMESTAMP_PRECISION_POS+coltype.precision}, '.'), {TIMESTAMP_PRECISION_POS+6}, '0')"
-            )
+            return f"RPAD(RPAD({s}, {TIMESTAMP_PRECISION_POS+coltype.precision}, '.'), {TIMESTAMP_PRECISION_POS+6}, '0')"
 
         return self.to_string(value)
 
